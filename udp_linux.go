@@ -113,7 +113,7 @@ func (u *udpConn) GetSendBuffer() (int, error) {
 	return unix.GetsockoptInt(int(u.sysFd), unix.SOL_SOCKET, unix.SO_SNDBUF)
 }
 
-func (u *udpConn) LocalAddr() (*udpAddr, error) {
+func (u *udpConn) 	LocalAddr() (*udpAddr, error) {
 	var rsa rawSockaddrAny
 	var rLen = unix.SizeofSockaddrAny
 
@@ -144,6 +144,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 	header := &Header{}
 	fwPacket := &FirewallPacket{}
 	udpAddr := &udpAddr{}
+	gossipPacket := &GossipPacket{}
 	nb := make([]byte, 12, 12)
 
 	lhh := f.lightHouse.NewRequestHandler()
@@ -168,7 +169,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 			udpAddr.IP = binary.BigEndian.Uint32(names[i][4:8])
 			udpAddr.Port = binary.BigEndian.Uint16(names[i][2:4])
 
-			f.readOutsidePackets(udpAddr, plaintext[:0], buffers[i][:msgs[i].Len], header, fwPacket, lhh, nb)
+			f.readOutsidePackets(udpAddr, plaintext[:0], buffers[i][:msgs[i].Len], header, gossipPacket, fwPacket, lhh, nb)
 		}
 	}
 }

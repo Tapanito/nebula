@@ -1,6 +1,7 @@
 package nebula
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -78,4 +79,46 @@ func Test_newPacket(t *testing.T) {
 	assert.Equal(t, p.RemoteIP, ip2int(net.IPv4(10, 0, 0, 2)))
 	assert.Equal(t, p.RemotePort, uint16(6))
 	assert.Equal(t, p.LocalPort, uint16(5))
+}
+
+func TestEncapsulatedPacket(t *testing.T) {
+	// account for variable ip header length - incoming
+	h1 := ipv4.Header{
+		Version:  ipv4.Version,
+		Len:      24,
+		Src:      net.IPv4(10, 0, 0, 1),
+		Dst:      net.IPv4(10, 0, 0, 2),
+		Options:  []byte{0, 1, 0, 2},
+		Protocol: fwProtoTCP,
+	}
+
+	data, _ := h1.Marshal()
+	// append port data
+	data = append(data, byte(uint16(8080)>>8), byte(8080&0xff))
+	data = append(data, byte(uint16(9090)>>8), byte(9090&0xff))
+
+	h2 := ipv4.Header{
+		Version:  ipv4.Version,
+		Len:      24,
+		Src:      net.IPv4(10, 0, 20, 1),
+		Dst:      net.IPv4(10, 0, 30, 2),
+		Options:  []byte{0, 1, 0, 2},
+		Protocol: fwProtoTCP,
+	}
+	data2, _ := h2.Marshal()
+	data = append(data, data2...)
+	data = append(data, byte(uint16(8888)>>8), byte(8888&0xff))
+	data = append(data, byte(uint16(9999)>>8), byte(9999&0xff))
+
+	fmt.Println(len(data))
+	fw := &FirewallPacket{}
+	err := newPacket(data[28:], true, fw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := fw.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(string(m))
 }

@@ -58,7 +58,7 @@ tun:
 # Configure logging level
 logging:
   level: info
-  format: json
+  format: text
 
 firewall:
   conntrack:
@@ -68,17 +68,9 @@ firewall:
     max_connections: 100,000
 
   inbound:
-    - proto: icmp
+    - proto: any
       port: any
       host: any
-    - proto: any
-      port: 22
-      host: any
-{% if "lighthouse" in groups %}
-    - proto: any
-      port: 53
-      host: any
-{% endif %}
 
   outbound:
     - proto: any

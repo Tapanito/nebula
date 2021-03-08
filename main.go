@@ -307,6 +307,9 @@ func Main(config *Config, configTest bool, buildVersion string, logger *logrus.L
 	handshakeManager := NewHandshakeManager(tunCidr, preferredRanges, hostMap, lightHouse, udpServer, handshakeConfig)
 	lightHouse.handshakeTrigger = handshakeManager.trigger
 
+	packetCache := NewPacketCache()
+	pathManager := NewPathManager()
+
 	//TODO: These will be reused for psk
 	//handshakeMACKey := config.GetString("handshake_mac.key", "")
 	//handshakeAcceptedMACKeys := config.GetStringSlice("handshake_mac.accepted_keys", []string{})
@@ -323,6 +326,8 @@ func Main(config *Config, configTest bool, buildVersion string, logger *logrus.L
 		Firewall:                fw,
 		ServeDns:                serveDns,
 		HandshakeManager:        handshakeManager,
+		PacketCache:             packetCache,
+		pathManager:             pathManager,
 		lightHouse:              lightHouse,
 		checkInterval:           checkInterval,
 		pendingDeletionInterval: pendingDeletionInterval,
@@ -355,6 +360,8 @@ func Main(config *Config, configTest bool, buildVersion string, logger *logrus.L
 
 		go handshakeManager.Run(ifce)
 		go lightHouse.LhUpdateWorker(ifce)
+		go packetCache.Run()
+		go pathManager.Run()
 	}
 
 	err = startStats(config, configTest)
@@ -365,6 +372,10 @@ func Main(config *Config, configTest bool, buildVersion string, logger *logrus.L
 	if configTest {
 		return nil, nil
 	}
+
+	go func() {
+		l.Info(EstablishConnection(ifce, config.GetStringSlice("peers", []string{})))
+	}()
 
 	//TODO: check if we _should_ be emitting stats
 	go ifce.emitStats(config.GetDuration("stats.interval", time.Second*10))

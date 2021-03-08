@@ -106,6 +106,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 	header := &Header{}
 	fwPacket := &FirewallPacket{}
 	udpAddr := &udpAddr{}
+	gossipPacket := &GossipPacket{}
 	nb := make([]byte, 12, 12)
 
 	lhh := f.lightHouse.NewRequestHandler()
@@ -119,7 +120,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 		}
 
 		udpAddr.UDPAddr = *rua
-		f.readOutsidePackets(udpAddr, plaintext[:0], buffer[:n], header, fwPacket, lhh, nb)
+		f.readOutsidePackets(udpAddr, plaintext[:0], buffer[:n], header, gossipPacket, fwPacket, lhh, nb)
 	}
 }
 

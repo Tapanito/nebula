@@ -105,6 +105,14 @@ func (hm *HostMap) EmitStats(name string) {
 	metrics.GetOrRegisterGauge("hostmap."+name+".remoteIndexes", nil).Update(int64(remoteIndexLen))
 }
 
+func (hm *HostMap) getByVpnIP(vpnIp uint32) *HostInfo {
+	hm.RLock()
+	i := hm.Hosts[vpnIp]
+	hm.RUnlock()
+
+	return i
+}
+
 func (hm *HostMap) GetIndexByVpnIP(vpnIP uint32) (uint32, error) {
 	hm.RLock()
 	if i, ok := hm.Hosts[vpnIP]; ok {
@@ -281,6 +289,20 @@ func (hm *HostMap) QueryReverseIndex(index uint32) (*HostInfo, error) {
 	}
 }
 
+func (h *HostMap) GetRemoteActiveHosts() []*HostInfo {
+	var hosts []*HostInfo
+	h.RLock()
+	for _, h := range h.Hosts {
+		if h.ConnectionState.ready {
+			hosts = append(hosts, h)
+		}
+	}
+
+	h.RUnlock()
+
+	return hosts
+}
+
 func (hm *HostMap) AddRemote(vpnIp uint32, remote *udpAddr) *HostInfo {
 	hm.Lock()
 	i, v := hm.Hosts[vpnIp]
@@ -451,6 +473,10 @@ func (i *HostInfo) MarshalJSON() ([]byte, error) {
 		"last_roam":          i.lastRoam,
 		"last_roam_remote":   i.lastRoamRemote,
 	})
+}
+
+func (i *HostInfo) String() string {
+	return fmt.Sprintf("Host: %s", int2ip(i.hostId))
 }
 
 func (i *HostInfo) BindConnectionState(cs *ConnectionState) {

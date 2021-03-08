@@ -38,6 +38,7 @@ const (
 	//TODO These are deprecated as of 06/12/2018 - NB
 	testRemote      NebulaMessageType = 6
 	testRemoteReply NebulaMessageType = 7
+	ackPath         NebulaMessageType = 8
 )
 
 var typeMap = map[NebulaMessageType]string{
@@ -51,6 +52,7 @@ var typeMap = map[NebulaMessageType]string{
 	//TODO These are deprecated as of 06/12/2018 - NB
 	testRemote:      "testRemote",
 	testRemoteReply: "testRemoteReply",
+	ackPath:         "ackPath",
 }
 
 const (

@@ -1,0 +1,49 @@
+pki:
+  ca: ca.crt
+  cert: cert.crt
+  key: pk.key
+
+lighthouse:
+  am_lighthouse: true
+  interval: 60
+  hosts:
+
+listen:
+  host: 0.0.0.0
+  port: 4242
+
+punchy:
+  punch: true
+
+tun:
+  disabled: false
+  dev: nebula1
+  drop_local_broadcast: false
+  drop_multicast: false
+  tx_queue: 500
+  mtu: 1300
+  routes:
+  unsafe_routes:
+
+logging:
+  level: debug
+  format: text
+
+# Nebula security group configuration
+firewall:
+  conntrack:
+    tcp_timeout: 12m
+    udp_timeout: 3m
+    default_timeout: 10m
+    max_connections: 100000
+
+
+  outbound:
+    - port: any
+      proto: any
+      host: any
+
+  inbound:
+    - port: any
+      proto: any
+      host: any

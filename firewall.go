@@ -891,7 +891,9 @@ func setTCPRTTTracking(c *conn, p []byte) {
 		return
 	}
 
-	ihl := int(p[0]&0x0f) << 2
+	//TODO: might be wrong offset
+	ihl := int(p[gpLength]&0x0f) << 2
+	ihl += gpLength
 
 	// Don't track FIN packets
 	if p[ihl+13]&tcpFIN != 0 {
@@ -907,7 +909,9 @@ func (f *Firewall) checkTCPRTT(c *conn, p []byte) bool {
 		return false
 	}
 
-	ihl := int(p[0]&0x0f) << 2
+	//TODO: the offset might be wrong
+	ihl := int(p[gpLength]&0x0f) << 2
+	ihl += gpLength
 	if p[ihl+13]&tcpACK == 0 {
 		return false
 	}

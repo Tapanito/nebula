@@ -55,7 +55,7 @@
   notify: restart nebula
 
 - name: maybe reload systemd
-  shell: systemctl daemon-reload
+  shell: systemctl restart nebula.service
   when: addconf.changed
 
 - name: nebula running

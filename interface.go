@@ -3,6 +3,7 @@ package nebula
 import (
 	"errors"
 	"io"
+	"math/rand"
 	"net"
 	"os"
 	"time"
@@ -29,6 +30,8 @@ type InterfaceConfig struct {
 	Firewall                *Firewall
 	ServeDns                bool
 	HandshakeManager        *HandshakeManager
+	PacketCache             *packetCache
+	pathManager             *pathManager
 	lightHouse              *LightHouse
 	checkInterval           int
 	pendingDeletionInterval int
@@ -42,6 +45,8 @@ type InterfaceConfig struct {
 }
 
 type Interface struct {
+	rand               *rand.Rand
+	packetCache        *packetCache
 	hostMap            *HostMap
 	outside            *udpConn
 	inside             Inside
@@ -50,6 +55,7 @@ type Interface struct {
 	firewall           *Firewall
 	connectionManager  *connectionManager
 	handshakeManager   *HandshakeManager
+	pathManager        *pathManager
 	serveDns           bool
 	createTime         time.Time
 	lightHouse         *LightHouse
@@ -80,6 +86,7 @@ func NewInterface(c *InterfaceConfig) (*Interface, error) {
 	}
 
 	ifce := &Interface{
+		rand:               rand.New(rand.NewSource(time.Now().UnixNano())),
 		hostMap:            c.HostMap,
 		outside:            c.Outside,
 		inside:             c.Inside,
@@ -97,6 +104,8 @@ func NewInterface(c *InterfaceConfig) (*Interface, error) {
 		udpQueues:          c.udpQueues,
 		tunQueues:          c.tunQueues,
 		version:            c.version,
+		packetCache:        c.PacketCache,
+		pathManager:        c.pathManager,
 
 		metricHandshakes: metrics.GetOrRegisterHistogram("handshakes", nil, metrics.NewExpDecaySample(1028, 0.015)),
 		messageMetrics:   c.MessageMetrics,
@@ -139,7 +148,7 @@ func (f *Interface) listenOut(i int) {
 	if err != nil {
 		l.WithError(err).Error("failed to discover udp listening address")
 	}
-
+	l.WithField("addr", addr).Info("external listener started")
 	var li *udpConn
 	if i > 0 {
 		//TODO: handle error
@@ -159,7 +168,7 @@ func (f *Interface) listenIn(i int) {
 	out := make([]byte, mtu)
 	fwPacket := &FirewallPacket{}
 	nb := make([]byte, 12, 12)
-
+	gossipPacket := &GossipPacket{}
 	for {
 		n, err := f.inside.Read(packet)
 		if err != nil {
@@ -168,7 +177,7 @@ func (f *Interface) listenIn(i int) {
 			os.Exit(2)
 		}
 
-		f.consumeInsidePacket(packet[:n], fwPacket, nb, out)
+		f.consumeInsidePacket(packet[:n], gossipPacket, fwPacket, nb, out)
 	}
 }
 
