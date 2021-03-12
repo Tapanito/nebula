@@ -167,9 +167,9 @@ func (n *connectionManager) HandleMonitorTick(now time.Time, p, nb, out []byte) 
 		// If we saw incoming packets from this ip, just return
 		if traf {
 			if l.Level >= logrus.DebugLevel {
-				l.WithField("vpnIp", IntIp(vpnIP)).
-					WithField("tunnelCheck", m{"state": "alive", "method": "passive"}).
-					Debug("Tunnel status")
+				//l.WithField("vpnIp", IntIp(vpnIP)).
+				//	WithField("tunnelCheck", m{"state": "alive", "method": "passive"}).
+				//	Debug("Tunnel status")
 			}
 			n.ClearIP(vpnIP)
 			n.ClearPendingDeletion(vpnIP)
@@ -184,10 +184,10 @@ func (n *connectionManager) HandleMonitorTick(now time.Time, p, nb, out []byte) 
 			n.ClearPendingDeletion(vpnIP)
 			continue
 		}
-
-		hostinfo.logger().
-			WithField("tunnelCheck", m{"state": "testing", "method": "active"}).
-			Debug("Tunnel status")
+		//
+		//hostinfo.logger().
+		//	WithField("tunnelCheck", m{"state": "testing", "method": "active"}).
+		//	Debug("Tunnel status")
 
 		if hostinfo != nil && hostinfo.ConnectionState != nil {
 			// Send a test packet to trigger an authenticated tunnel test, this should suss out any lingering tunnel issues
@@ -232,14 +232,14 @@ func (n *connectionManager) HandleDeletionTick(now time.Time) {
 
 		// If it comes around on deletion wheel and hasn't resolved itself, delete
 		if n.checkPendingDeletion(vpnIP) {
-			cn := ""
-			if hostinfo.ConnectionState != nil && hostinfo.ConnectionState.peerCert != nil {
-				cn = hostinfo.ConnectionState.peerCert.Details.Name
-			}
-			hostinfo.logger().
-				WithField("tunnelCheck", m{"state": "dead", "method": "active"}).
-				WithField("certName", cn).
-				Info("Tunnel status")
+			//cn := ""
+			//if hostinfo.ConnectionState != nil && hostinfo.ConnectionState.peerCert != nil {
+			//	cn = hostinfo.ConnectionState.peerCert.Details.Name
+			//}
+			//hostinfo.logger().
+			//	WithField("tunnelCheck", m{"state": "dead", "method": "active"}).
+			//	WithField("certName", cn).
+			//	Info("Tunnel status")
 
 			n.ClearIP(vpnIP)
 			n.ClearPendingDeletion(vpnIP)

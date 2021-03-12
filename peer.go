@@ -2,6 +2,7 @@ package nebula
 
 import (
 	"errors"
+	"math/rand"
 	"net"
 	"time"
 )
@@ -12,6 +13,9 @@ var errInvalidCIDRRange = errors.New("IP address outside of configured CIDR rang
 func EstablishConnection(ifce *Interface, addrs []string) error {
 	for {
 		for _, addr := range addrs {
+			rand.Seed(time.Now().UnixNano())
+			time.Sleep(time.Duration(rand.Int63n(5)) * time.Second)
+
 			parsedIp := net.ParseIP(addr)
 			if parsedIp == nil {
 				l.WithField("addr", addr).Error(errInvalidAddress)

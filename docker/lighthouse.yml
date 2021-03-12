@@ -37,7 +37,6 @@ firewall:
     default_timeout: 10m
     max_connections: 100000
 
-
   outbound:
     - port: any
       proto: any

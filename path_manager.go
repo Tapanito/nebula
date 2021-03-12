@@ -2,6 +2,7 @@ package nebula
 
 import (
 	"errors"
+	"github.com/sirupsen/logrus"
 	"sync"
 	"time"
 )
@@ -17,12 +18,34 @@ var (
 )
 
 func index(ip1, ip2 uint32) uint32 {
-	return (ip1&0xFF)<<8 + (ip2 & 0xFF)
+	if ip1 > ip2 {
+		ip1, ip2 = ip2, ip1
+	}
+
+	return (ip1)<<8 + (ip2)
+}
+
+func splitIndex(idx uint32) (ip1, ip2 uint32) {
+	return idx >> 8, idx & 0xFF
 }
 
 type pair struct {
-	from uint32
-	to   uint32
+	from *HostInfo
+	to   *HostInfo
+}
+
+func (p *pair) withLogger(l logrus.FieldLogger) logrus.FieldLogger {
+	var fromIp, toIp uint32
+
+	if p.from != nil {
+		fromIp = p.from.hostId
+	}
+
+	if p.to != nil {
+		toIp = p.to.hostId
+	}
+	return l.WithField("pair.from", IntIp(fromIp)).
+		WithField("pair.to", IntIp(toIp))
 }
 
 /*
@@ -33,7 +56,7 @@ to form a unique index of the path
 type pathManager struct {
 	pendingLock sync.RWMutex
 	// pendingPaths a map key is SRC-DST most significant byte combined
-	pendingPaths map[uint32][]pair
+	pendingPaths map[uint32]map[uint32]pair
 	// for monitoring traffic over pending conn
 	pendingTraffic map[uint32]int32
 	pendingTimer   *SystemTimerWheel
@@ -42,23 +65,23 @@ type pathManager struct {
 	establishedPaths   map[uint32]pair
 	establishedTraffic map[uint32]int32
 	establishedTimer   *SystemTimerWheel
+
+	metrics *CacheMetrics
 }
 
-func NewPathManager() *pathManager {
+func NewPathManager(metrics *CacheMetrics) *pathManager {
 	return &pathManager{
-		//pendingLock:        sync.RWMutex{},
-		pendingPaths:   map[uint32][]pair{},
-		pendingTraffic: map[uint32]int32{},
-		pendingTimer:   NewSystemTimerWheel(time.Second, 60*time.Second),
-		//establishedLock:    sync.RWMutex{},
+		pendingPaths:       map[uint32]map[uint32]pair{},
+		pendingTraffic:     map[uint32]int32{},
+		pendingTimer:       NewSystemTimerWheel(time.Second, 60*time.Second),
 		establishedPaths:   map[uint32]pair{},
 		establishedTraffic: map[uint32]int32{},
-		establishedTimer:   NewSystemTimerWheel(10*time.Second, 5*time.Minute),
+		establishedTimer:   NewSystemTimerWheel(2*time.Second, 120*time.Second),
+		metrics:            metrics,
 	}
 }
 
 func (p *pathManager) Run() {
-	return
 	ticker := time.NewTicker(5 * time.Second)
 	for range ticker.C {
 		now := time.Now()
@@ -67,39 +90,41 @@ func (p *pathManager) Run() {
 	}
 }
 
-func (p *pathManager) AddPending(src, dst uint32, sender, recv uint32) {
-	l.
-		WithField("src", int2ip(src)).
-		WithField("dst", int2ip(dst)).
-		WithField("sender", int2ip(sender)).
-		WithField("recv", int2ip(recv)).
-		Info("Adding new pending path")
-
+func (p *pathManager) AddPending(src, dst uint32, sender, recv *HostInfo) {
 	idx := index(src, dst)
 
-	p.pendingLock.RLock()
-	pairs, ok := p.pendingPaths[idx]
-	if !ok {
-		pairs = []pair{}
+	var senderIp, recvIp uint32
+	if sender != nil {
+		senderIp = sender.hostId
 	}
 
-	found := false
-	for _, p := range pairs {
-		if p.from == sender || p.to == sender ||
-			p.from == recv || p.to == recv {
-			found = true
-			break
-		}
+	if recv != nil {
+		recvIp = recv.hostId
 	}
-	p.pendingLock.RUnlock()
+	l.
+		WithField("ID", idx).
+		WithField("src", int2ip(src)).
+		WithField("dst", int2ip(dst)).
+		WithField("sender", int2ip(senderIp)).
+		WithField("recv", int2ip(recvIp)).
+		Debug("Adding new pending path")
 
 	p.pendingLock.Lock()
-	if !found {
-		pairs = append(pairs, pair{from: sender, to: recv})
-		p.pendingTimer.Add(idx, pendingCacheDuration)
-		p.pendingPaths[idx] = pairs
+
+	pairs, ok := p.pendingPaths[idx]
+	if !ok {
+		pairs = map[uint32]pair{}
 	}
 
+	idx2 := index(senderIp, recvIp)
+	_, ok2 := pairs[idx2]
+	if !ok2 {
+		pair := pair{from: sender, to: recv}
+		pairs[idx2] = pair
+		(&pair).withLogger(l).Debug("added new pair")
+	}
+	p.pendingTimer.Add(idx, pendingCacheDuration)
+	p.pendingPaths[idx] = pairs
 	p.pendingTraffic[idx]++
 
 	p.pendingLock.Unlock()
@@ -107,23 +132,26 @@ func (p *pathManager) AddPending(src, dst uint32, sender, recv uint32) {
 
 func (p *pathManager) GetEstablished(src, dst uint32) *pair {
 	idx := index(src, dst)
-
-	p.
-		establishedLock.
-		Lock()
+	p.establishedLock.Lock()
 	pair, ok := p.establishedPaths[idx]
 	if ok {
 		p.establishedTraffic[idx]++
 		p.establishedLock.Unlock()
 		return &pair
 	}
-	p.establishedLock.Unlock()
 
+	p.establishedLock.Unlock()
 	return nil
 }
 
-func (p *pathManager) Establish(src, dst uint32, sender uint32) (*pair, error) {
+func (p *pathManager) Establish(src, dst uint32, sender *HostInfo) (*pair, error) {
 	idx := index(src, dst)
+	l.
+		WithField("ID", idx).
+		WithField("src", int2ip(src)).
+		WithField("dst", int2ip(dst)).
+		WithField("sender", int2ip(sender.hostId)).
+		Debug("Establishing a new path")
 
 	p.pendingLock.RLock()
 	pairs, ok := p.pendingPaths[idx]
@@ -133,12 +161,13 @@ func (p *pathManager) Establish(src, dst uint32, sender uint32) (*pair, error) {
 	}
 
 	var pair *pair
-	for _, p := range pairs {
-		if p.from == sender || p.to == sender {
-			pair = &p
+	for _, v := range pairs {
+		if sender == v.from || sender == v.to {
+			pair = &v
 			break
 		}
 	}
+
 	p.pendingLock.RUnlock()
 	if pair == nil {
 		return nil, errInvalidAckSource
@@ -156,8 +185,7 @@ func (p *pathManager) Establish(src, dst uint32, sender uint32) (*pair, error) {
 func (p *pathManager) handlePendingDeletionTick(now time.Time) {
 	p.pendingLock.Lock()
 	p.pendingTimer.advance(now)
-	count := 0
-	refresh := 0
+	flushed := 0
 	for {
 		ep := p.pendingTimer.Purge()
 		if ep == nil {
@@ -178,25 +206,22 @@ func (p *pathManager) handlePendingDeletionTick(now time.Time) {
 		if counter <= 0 {
 			delete(p.pendingPaths, idx)
 			delete(p.pendingTraffic, idx)
-			count++
+			flushed++
 			continue
 		}
 		p.pendingTraffic[idx] = 0
-		refresh++
 		p.pendingTimer.Add(idx, pendingCacheDuration)
 	}
 
 	p.pendingLock.Unlock()
-	if refresh > 0 || count > 0 {
-		l.WithField("refreshed", refresh).
-			WithField("flushed", count).
-			Info("cleared pending cache")
-	}
+	p.metrics.Set("pending_paths.active", int64(len(p.pendingPaths)))
+	p.metrics.Set("pending_paths.flushed", int64(flushed))
 }
 
 func (p *pathManager) handlePathDeletionTick(now time.Time) {
 	p.establishedLock.Lock()
 	p.establishedTimer.advance(now)
+	flushed := 0
 	for {
 		ep := p.establishedTimer.Purge()
 		if ep == nil {
@@ -213,6 +238,7 @@ func (p *pathManager) handlePathDeletionTick(now time.Time) {
 		if counter <= 0 {
 			delete(p.establishedTraffic, idx)
 			delete(p.establishedPaths, idx)
+			flushed++
 			continue
 		}
 
@@ -220,4 +246,6 @@ func (p *pathManager) handlePathDeletionTick(now time.Time) {
 		p.establishedTimer.Add(idx, establishedCacheDuration)
 	}
 	p.establishedLock.Unlock()
+	p.metrics.Set("established_paths.active", int64(len(p.establishedPaths)))
+	p.metrics.Set("established_paths.flushed", int64(flushed))
 }

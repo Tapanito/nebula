@@ -1,14 +1,22 @@
 package nebula
 
 import (
-	"fmt"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-func TestNewPacketCache(t *testing.T) {
-	pc := NewPacketCache()
+func BenchmarkPacketCache_Cache(b *testing.B) {
+	cache := NewPacketCache(NewCacheMetrics())
+	go cache.addTimer()
 
-	fmt.Println(pc.timer.tickDuration)
-	fmt.Println(pc.timer.wheelDuration)
-	fmt.Println(pc.timer.wheelLen)
+	for i := 0; i < b.N; i++ {
+		cache.cache(uint32(i))
+	}
+}
+
+func TestPacketCache_cache(t *testing.T) {
+	cache := NewPacketCache(NewCacheMetrics())
+
+	assert.False(t, cache.cache(1))
+	assert.True(t, cache.cache(1))
 }

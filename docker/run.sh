@@ -26,6 +26,7 @@ make bin
 
 # Create the docker network if it does not exist
 docker network create --subnet=172.20.0.0/24 nebula || true
+docker kill "${nodes[@]}" > /dev/null || true
 
 for i in "${!nodes[@]}"; do
   node="${nodes[$i]}"
@@ -35,7 +36,6 @@ for i in "${!nodes[@]}"; do
 	printf "Copying $node config to work dir...\n"
   cp "$node".yml "$node"/config.yml
   cp "$NEBULA" "$node"/
-  docker kill "$node" > /dev/null || true && docker rm "$node" > /dev/null || true
 	docker run --detach --rm --name "$node" \
 	-v "$(pwd)"/"$node":/"$node" -w /"$node" \
 	--cap-add=NET_ADMIN  --device /dev/net/tun --net nebula \

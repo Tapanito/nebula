@@ -698,7 +698,20 @@ func (i *HostInfo) CreateRemoteCIDR(c *cert.NebulaCertificate) {
 	i.remoteCidr = remoteCidr
 }
 
-func (i *HostInfo) logger() *logrus.Entry {
+func (i *HostInfo) withLogger(l logrus.FieldLogger) logrus.FieldLogger {
+	li := l.WithField("vpnIp", IntIp(i.hostId))
+
+	if connState := i.ConnectionState; connState != nil {
+		if peerCert := connState.peerCert; peerCert != nil {
+			li = li.WithField("certName", peerCert.Details.Name)
+		}
+	}
+
+	return li
+}
+
+
+func (i *HostInfo) logger() logrus.FieldLogger {
 	if i == nil {
 		return logrus.NewEntry(l)
 	}
@@ -713,6 +726,8 @@ func (i *HostInfo) logger() *logrus.Entry {
 
 	return li
 }
+
+
 
 //########################
 

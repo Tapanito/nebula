@@ -7,8 +7,8 @@ static_host_map:
   "192.168.0.1": ["172.20.0.2:4242"]
 
 peers:
-  - "192.168.0.2"
-  - "192.168.0.5"
+#  - "192.168.0.2"
+#  - "192.168.0.5"
 
 lighthouse:
   am_lighthouse: false
@@ -22,6 +22,15 @@ listen:
 
 punchy:
   punch: true
+
+stats:
+  type: prometheus
+  listen: 0.0.0.0:8080
+  path: /metrics
+  namespace: prometheusns
+  subsystem: nebula
+  interval: 1s
+  message_metrics: true
 
 tun:
   # When tun is disabled, a lighthouse can be started without a local tun interface (and therefore without root)

@@ -34,12 +34,17 @@ func (m *MessageMetrics) Tx(t NebulaMessageType, s NebulaMessageSubType, i int64
 }
 
 func newMessageMetrics() *MessageMetrics {
+	// this is so fucking stupid
 	gen := func(t string) [][]metrics.Counter {
 		return [][]metrics.Counter{
 			{
 				metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.handshake_ixpsk0", t), nil),
 			},
-			nil,
+			{
+				metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s", t), nil),
+				metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.duplicate", t), nil),
+				metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.forwarded", t), nil),
+			},
 			{metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.recv_error", t), nil)},
 			{metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.lighthouse", t), nil)},
 			{
@@ -47,6 +52,10 @@ func newMessageMetrics() *MessageMetrics {
 				metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.test_response", t), nil),
 			},
 			{metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.close_tunnel", t), nil)},
+			nil,
+			nil,
+			{metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.ack_path", t), nil)},
+
 		}
 	}
 	return &MessageMetrics{

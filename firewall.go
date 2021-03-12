@@ -132,6 +132,11 @@ func (fp *FirewallPacket) Copy() *FirewallPacket {
 	}
 }
 
+func (fp *FirewallPacket) withLogger(l logrus.FieldLogger) logrus.FieldLogger {
+	return l.WithField("fwPacket.LocalIP", IntIp(fp.LocalIP)).
+		WithField("fwPacket.RemoteIP", IntIp(fp.RemoteIP))
+}
+
 func (fp FirewallPacket) MarshalJSON() ([]byte, error) {
 	var proto string
 	switch fp.Protocol {

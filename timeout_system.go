@@ -76,7 +76,6 @@ func NewSystemTimerWheel(min, max time.Duration) *SystemTimerWheel {
 
 func (tw *SystemTimerWheel) Add(v uint32, timeout time.Duration) *SystemTimeoutItem {
 	tw.lock.Lock()
-	defer tw.lock.Unlock()
 
 	// Check and see if we should progress the tick
 	//tw.advance(time.Now())
@@ -102,6 +101,7 @@ func (tw *SystemTimerWheel) Add(v uint32, timeout time.Duration) *SystemTimeoutI
 		tw.wheel[i].Tail = ti
 	}
 
+	tw.lock.Unlock()
 	return ti
 }
 

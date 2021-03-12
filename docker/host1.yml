@@ -67,19 +67,14 @@ logging:
   # As an example, to log as RFC3339 with millisecond precision, set to:
   #timestamp_format: "2006-01-02T15:04:05.000Z07:00"
 
-#stats:
-  #type: graphite
-  #prefix: nebula
-  #protocol: tcp
-  #host: 127.0.0.1:9999
-  #interval: 10s
-
-  #type: prometheus
-  #listen: 127.0.0.1:8080
-  #path: /metrics
-  #namespace: prometheusns
-  #subsystem: nebula
-  #interval: 10s
+stats:
+  type: prometheus
+  listen: 0.0.0.0:8080
+  path: /metrics
+  namespace: prometheusns
+  subsystem: nebula
+  interval: 1s
+  message_metrics: true
 
   # enables counter metrics for meta packets
   #   e.g.: `messages.tx.handshake`

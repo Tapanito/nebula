@@ -7,6 +7,7 @@ require (
 	github.com/armon/go-radix v1.0.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/cyberdelia/go-metrics-graphite v0.0.0-20161219230853-39f87cc3b432
+	github.com/dgraph-io/ristretto v0.0.3
 	github.com/flynn/go-shlex v0.0.0-20150515145356-3f9db97f8568 // indirect
 	github.com/flynn/noise v0.0.0-20180327030543-2492fe189ae6
 	github.com/golang/protobuf v1.3.2

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unsafe"
 
 	"github.com/flynn/noise"
 	"github.com/golang/protobuf/proto"
@@ -39,6 +40,7 @@ func (f *Interface) readOutsidePackets(addr *udpAddr, out []byte, packet []byte,
 
 	switch header.Type {
 	case message:
+		f.messageMetrics.Rx(header.Type, header.Subtype, 1)
 		if !f.handleEncrypted(ci, addr, header) {
 			return
 		}
@@ -47,71 +49,13 @@ func (f *Interface) readOutsidePackets(addr *udpAddr, out []byte, packet []byte,
 
 		// Fallthrough to the bottom to record incoming traffic
 	case ackPath:
-		l.WithField("PacketType", "ackPath").
-			Infof("Received path ACK packet")
-
 		f.messageMetrics.Rx(header.Type, header.Subtype, 1)
 		if !f.handleEncrypted(ci, addr, header) {
 			return
 		}
 
-		d, err := f.decrypt(hostinfo, header.MessageCounter, out, packet, header, nb)
-		if err != nil {
-			hostinfo.logger().WithError(err).WithField("udpAddr", addr).
-				WithField("packet", packet).
-				Error("Failed to decrypt afck path packet")
+		f.handlePathAck(hostinfo, header.MessageCounter, fwPacket, packet, nb, out)
 
-			return
-		}
-
-		err = newPacket(d, false, fwPacket)
-		if err != nil {
-			hostinfo.logger().WithError(err).WithField("udpAddr", addr).
-				WithField("packet", packet).
-				Error("Failed to parse ack path firewall packet")
-
-			return
-		}
-
-		l.
-			WithField("localIP", int2ip(fwPacket.LocalIP)).
-			WithField("remoteIP", int2ip(fwPacket.RemoteIP)).
-			Info("Parsed incoming gossip header")
-
-		pair, err := f.pathManager.Establish(fwPacket.LocalIP, fwPacket.RemoteIP, hostinfo.hostId)
-		if err != nil {
-			hostinfo.logger().WithError(err).
-				WithField("packet", packet).
-				Error("Failed to parse ack path firewall packet")
-
-			return
-		}
-		l.WithField("pair.to", pair.to).
-			WithField("pair.from", pair.from).
-			Info("Path established")
-
-		//err = newAckPathPacket(fwPacket, d, out)
-		//if err != nil {
-		//	l.WithError(err).WithField("packet", out).
-		//		Warnf("Error creating path ACK Packet")
-		//	return
-		//}
-		if pair.from != 0 {
-			h := f.hostMap.getByVpnIP(pair.from)
-			if h == nil {
-				l.WithField("pair.from", int2ip(pair.from)).
-					Error("From address not found")
-				return
-			}
-			mc := f.sendNoMetrics(ackPath,
-				0, h.ConnectionState,
-				h,
-				h.remote,
-				d, make([]byte, 12, 12), make([]byte, mtu))
-			if f.lightHouse != nil && mc%5000 == 0 {
-				f.lightHouse.Query(fwPacket.RemoteIP, f)
-			}
-		}
 	case lightHouse:
 		f.messageMetrics.Rx(header.Type, header.Subtype, 1)
 		if !f.handleEncrypted(ci, addr, header) {
@@ -194,6 +138,51 @@ func (f *Interface) readOutsidePackets(addr *udpAddr, out []byte, packet []byte,
 	f.handleHostRoaming(hostinfo, addr)
 
 	f.connectionManager.In(hostinfo.hostId)
+}
+
+func (f *Interface) handlePathAck(hostinfo *HostInfo, messageCounter uint64, fwPacket *FirewallPacket, packet, nb, out []byte) {
+	var err error
+	out, err = hostinfo.ConnectionState.dKey.DecryptDanger(out, packet[:HeaderLen], packet[HeaderLen:], messageCounter, nb)
+	if err != nil {
+		hostinfo.logger().WithError(err).Error("Failed to decrypt packet")
+		//TODO: maybe after build 64 is out? 06/14/2018 - NB
+		//f.sendRecvError(hostinfo.remote, header.RemoteIndex)
+		return
+	}
+
+	err = newPacket(out, false, fwPacket)
+	if err != nil {
+		hostinfo.logger().
+			WithError(err).
+			WithField("udpAddr", hostinfo.remote).
+			WithField("packet", out).
+			Error("Failed to parse ack path firewall packet")
+		return
+	}
+
+	fwPacket.withLogger(hostinfo.logger()).Info("received path ACK")
+
+	pair, err := f.pathManager.Establish(fwPacket.LocalIP, fwPacket.RemoteIP, hostinfo)
+	if err != nil {
+		fwPacket.
+			withLogger(hostinfo.logger()).
+			WithError(err).
+			Error("Failed to establish a path")
+		return
+	}
+
+	if pair.from != nil {
+
+		mc, err := f.plainSend(ackPath, pair.from, out, make([]byte, 12, 12), make([]byte, mtu))
+		if err != nil {
+			pair.from.logger().WithError(err).
+				Error("failed to forward ACK path message")
+			return
+		}
+		if f.lightHouse != nil && mc%5000 == 0 {
+			f.lightHouse.Query(fwPacket.RemoteIP, f)
+		}
+	}
 }
 
 func (f *Interface) closeTunnel(hostInfo *HostInfo) {
@@ -367,36 +356,29 @@ func (f *Interface) decryptToTun(hostinfo *HostInfo, messageCounter uint64, out 
 		return
 	}
 
-	err = parseIncomingGossipPacket(out, gossipPacket)
+	err = parseGossipPacket(out, gossipPacket)
 	if err != nil {
 		hostinfo.logger().WithError(err).WithField("packet", out).
 			Error("Error while parsing gossip header")
 		return
 	}
-	// TODO: we might want to log who sent the original packet
-	if f.packetCache.contains(gossipPacket.ID) {
-		l.WithField("ID", gossipPacket.ID).
-			WithField("localIP", int2ip(gossipPacket.LocalIP)).
-			WithField("remoteIP", int2ip(gossipPacket.RemoteIP)).
-			Info("Packet seen, dropping")
+
+	gossipPacket.withLogger(hostinfo.logger()).Debug("Parsed inbound gossip packet")
+
+	if f.packetCache.cache(gossipPacket.ID) {
+		hostinfo.withLogger(gossipPacket.withLogger(l)).
+			Debug("Packet seen, dropping")
 		return
 	}
 
 	out = out[gpLength:]
-	// TODO: check if we've seen this packet
-	err = newPacket(out, true, fwPacket)
+	err = newPacket(out, false, fwPacket)
 	if err != nil {
-		l.WithError(err).WithField("packet", out).
-			Warnf("Error while validating inbound packet")
+		hostinfo.logger().
+			WithError(err).WithField("packet", out).
+			Warnf("Error validating inbound packet")
 		return
 	}
-
-	l.WithField("ID", gossipPacket.ID).
-		WithField("localIP", int2ip(gossipPacket.LocalIP)).
-		WithField("remoteIP", int2ip(gossipPacket.RemoteIP)).
-		WithField("fwPacket.localIP", int2ip(fwPacket.LocalIP)).
-		WithField("fwPacket.remoteIP", int2ip(fwPacket.RemoteIP)).
-		Info("Parsed incoming headers")
 
 	if !hostinfo.ConnectionState.window.Update(messageCounter) {
 		hostinfo.logger().WithField("fwPacket", fwPacket).
@@ -404,122 +386,136 @@ func (f *Interface) decryptToTun(hostinfo *HostInfo, messageCounter uint64, out 
 		return
 	}
 
-	f.packetCache.cache(gossipPacket.ID, 5*time.Second)
-	pair := f.pathManager.GetEstablished(fwPacket.RemoteIP, fwPacket.LocalIP)
-
-	if fwPacket.LocalIP == f.lightHouse.myIp {
-
-		// TODO: disabled firewall because it checks whether the remote in header
-		// matches remote ID in host info
-		// TODO: finalize the path
-		//dropReason := f.firewall.Drop(out, *fwPacket, true, hostinfo, trustedCAs)
-		//if dropReason != nil {
-		//	if l.Level >= logrus.DebugLevel {
-		//		hostinfo.logger().WithField("fwPacket", fwPacket).
-		//			WithField("reason", dropReason).
-		//			Debugln("dropping inbound packet")
-		//	}
-		//	return
-		//}
+	pair := f.pathManager.GetEstablished(fwPacket.LocalIP, fwPacket.RemoteIP)
+	if fwPacket.RemoteIP == f.lightHouse.myIp {
+		hostinfo.logger().Debug("packet reached the destination")
 		f.connectionManager.In(hostinfo.hostId)
+
 		err = f.inside.WriteRaw(out)
 		if err != nil {
 			l.WithError(err).Error("Failed to write to tun")
 		}
 
 		if pair == nil {
-			f.pathManager.AddPending(fwPacket.RemoteIP, fwPacket.LocalIP, hostinfo.hostId, 0)
-			l.Info("Establishing a new path")
+			f.pathManager.AddPending(fwPacket.LocalIP, fwPacket.RemoteIP, hostinfo, nil)
 			err := newAckPathPacket(fwPacket, out, out)
 			if err != nil {
 				l.WithError(err).WithField("packet", out).
 					Warnf("Error creating path ACK Packet")
 				return
 			}
-			mc := f.sendNoMetrics(ackPath,
-				0, hostinfo.ConnectionState,
+
+			mc, err := f.plainSend(ackPath,
 				hostinfo,
-				hostinfo.remote,
 				out, make([]byte, 12, 12), make([]byte, mtu))
 			if f.lightHouse != nil && mc%5000 == 0 {
 				f.lightHouse.Query(fwPacket.RemoteIP, f)
 			}
 
-			_, err = f.pathManager.Establish(fwPacket.RemoteIP, fwPacket.LocalIP, hostinfo.hostId)
 			if err != nil {
-				l.WithError(err).
-					WithField("fwPacket.localIP", int2ip(fwPacket.LocalIP)).
-					WithField("fwfacket.remoteIP", int2ip(fwPacket.RemoteIP)).
-					Info("failed to establish a path")
+				hostinfo.logger().WithError(err).Error("failed to send path ACK")
+				return
 			}
+
+			_, err = f.pathManager.Establish(fwPacket.LocalIP, fwPacket.RemoteIP, hostinfo)
+			if err != nil {
+				fwPacket.
+					withLogger(hostinfo.logger()).
+					WithError(err).
+					Error("failed to establish a path")
+				return
+			}
+
+			// TODO: disabled firewall because it checks whether the remote in header
+			// matches remote ID in host info
+			//dropReason := f.firewall.Drop(out, *fwPacket, true, hostinfo, trustedCAs)
+			//if dropReason != nil {
+			//	if l.Level >= logrus.DebugLevel {
+			//		hostinfo.logger().WithField("fwPacket", fwPacket).
+			//			WithField("reason", dropReason).
+			//			Debugln("dropping inbound packet")
+			//	}
+			//	return
+			//}
 		}
 	} else {
 		if pair != nil {
-			l.WithField("from", pair.from).
-				WithField("to", pair.to).
-				Info("packet arrived via established path")
-			var vpnIp uint32
+			var h *HostInfo
 			// check which way the packet is flowing
-			if pair.to == hostinfo.hostId {
-				vpnIp = pair.from
+			if pair.to == hostinfo {
+				h = pair.from
 			} else {
-				vpnIp = pair.to
+				h = pair.to
 			}
-			h := f.hostMap.getByVpnIP(vpnIp)
-			if h == nil {
-				l.WithField("vpnIP", int2ip(vpnIp)).
-					Error("Failed for find a host with IP")
+
+			h.logger().Debug("Forwarding packet via established route")
+			gossipPacket.RemoteIP = h.hostId
+			out = GossipEncode(out, gossipPacket, true)
+			mc, err := f.plainSend(message, h, out, nb, packet[:0])
+			if err != nil {
+				h.logger().WithError(err).Error("failed to send packet to peer; falling back to gossip")
+				f.gossip(hostinfo, gossipPacket, fwPacket, out, nb, out)
 				return
 			}
-			gossipPacket.RemoteIP = h.hostId
-			gp, _ := gossipPacket.Marshal()
-			gp = append(gp, out...)
 
-			mc := f.sendNoMetrics(message, 0, h.ConnectionState, h, h.remote, gp, nb, out)
 			if f.lightHouse != nil && mc%5000 == 0 {
 				f.lightHouse.Query(fwPacket.RemoteIP, f)
 			}
 		} else {
-			f.gossip(hostinfo, gossipPacket, fwPacket, packet, nb, out)
+			f.gossip(hostinfo, gossipPacket, fwPacket, out, nb, packet[:0])
 		}
 	}
 
 }
 
 func (f *Interface) gossip(sender *HostInfo, gossipPacket *GossipPacket, fwPacket *FirewallPacket, packet []byte, nb []byte, out []byte) {
-	hosts := f.hostMap.GetRemoteActiveHosts()
-	l.WithField("hosts", len(hosts)).
-		Infof("Forwarding message to all peers")
-	for _, h := range hosts {
-		if h.hostId == fwPacket.RemoteIP ||
+	l.Debug("Forwarding packet to all peers")
+	shift := true
+	for _, h := range f.hostMap.GetRemoteActiveHosts() {
+		if h.hostId == fwPacket.LocalIP ||
 			h.hostId == gossipPacket.RemoteIP ||
 			f.lightHouse.IsLighthouseIP(h.hostId) {
 			continue
 		}
 
 		gossipPacket.RemoteIP = h.hostId
-		h.logger().WithField("localIP", int2ip(gossipPacket.LocalIP)).
-			WithField("remoteIP", int2ip(gossipPacket.RemoteIP)).
-			Info("Outbound gossip header")
-		var senderIp uint32
-		if sender == nil {
-			senderIp = 0
-		} else {
-			senderIp = sender.hostId
-		}
+		h.withLogger(gossipPacket.withLogger(fwPacket.withLogger(l))).
+			Debug("Outbound gossip and firewall headers")
 
-		f.pathManager.AddPending(fwPacket.RemoteIP, fwPacket.LocalIP, senderIp, h.hostId)
-		gp, _ := gossipPacket.Marshal()
-		gp = append(gp, packet...)
+		packet = GossipEncode(packet, gossipPacket, shift)
+		shift = false
 
-		mc, err := f.plainSend(message, 0, h, gp, nb, out)
+		mc, err := f.plainSend(message, h, packet, nb, out)
 		if f.lightHouse != nil && mc%5000 == 0 {
 			f.lightHouse.Query(fwPacket.RemoteIP, f)
 		}
 		if err != nil {
 			h.logger().WithError(err).Error("failed to forward a packet")
 		}
+
+		f.pathManager.AddPending(fwPacket.LocalIP, fwPacket.RemoteIP, sender, h)
+		f.messageMetrics.Tx(message, 2, 1)
 	}
+}
+
+func AnyOverlap(x, y []byte) bool {
+
+	return len(x) > 0 && len(y) > 0 &&
+		uintptr(unsafe.Pointer(&x[0])) <= uintptr(unsafe.Pointer(&y[len(y)-1])) &&
+		uintptr(unsafe.Pointer(&y[0])) <= uintptr(unsafe.Pointer(&x[len(x)-1]))
+
+}
+
+func InexactOverlap(x, y []byte) bool {
+
+	if len(x) == 0 || len(y) == 0 || &x[0] == &y[0] {
+
+		return false
+
+	}
+
+	return AnyOverlap(x, y)
+
 }
 
 func (f *Interface) sendRecvError(endpoint *udpAddr, index uint32) {

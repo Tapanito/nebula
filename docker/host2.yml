@@ -7,8 +7,8 @@ static_host_map:
   "192.168.0.1": ["172.20.0.2:4242"]
 
 peers:
-  - "192.168.0.2"
-  - "192.168.0.5"
+#  - "192.168.0.2"
+#  - "192.168.0.5"
 
 lighthouse:
   am_lighthouse: false
@@ -67,7 +67,16 @@ logging:
   # As an example, to log as RFC3339 with millisecond precision, set to:
   #timestamp_format: "2006-01-02T15:04:05.000Z07:00"
 
-#stats:
+stats:
+  type: prometheus
+  listen: 0.0.0.0:8080
+  path: /metrics
+  namespace: prometheusns
+  subsystem: nebula
+  interval: 1s
+  message_metrics: true
+
+  #stats:
   #type: graphite
   #prefix: nebula
   #protocol: tcp

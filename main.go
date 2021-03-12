@@ -307,8 +307,9 @@ func Main(config *Config, configTest bool, buildVersion string, logger *logrus.L
 	handshakeManager := NewHandshakeManager(tunCidr, preferredRanges, hostMap, lightHouse, udpServer, handshakeConfig)
 	lightHouse.handshakeTrigger = handshakeManager.trigger
 
-	packetCache := NewPacketCache()
-	pathManager := NewPathManager()
+	cacheMetris := NewCacheMetrics()
+	packetCache := NewPacketCache(cacheMetris)
+	pathManager := NewPathManager(cacheMetris)
 
 	//TODO: These will be reused for psk
 	//handshakeMACKey := config.GetString("handshake_mac.key", "")
