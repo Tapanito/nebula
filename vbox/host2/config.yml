@@ -1,0 +1,144 @@
+pki:
+  ca: ca.crt
+  cert: cert.crt
+  key: pk.key
+
+static_host_map:
+  "192.168.0.1": ["10.0.10.4:4242"]
+
+peers:
+#  - "192.168.0.2"
+#  - "192.168.0.5"
+
+lighthouse:
+  am_lighthouse: false
+  interval: 60
+  hosts:
+    - "192.168.0.1"
+
+listen:
+  host: 0.0.0.0
+  port: 4242
+
+punchy:
+  punch: true
+
+tun:
+  # When tun is disabled, a lighthouse can be started without a local tun interface (and therefore without root)
+  disabled: false
+  # Name of the device
+  dev: nebula1
+  # Toggles forwarding of local broadcast packets, the address of which depends on the ip/mask encoded in pki.cert
+  drop_local_broadcast: false
+  # Toggles forwarding of multicast packets
+  drop_multicast: false
+  # Sets the transmit queue length, if you notice lots of transmit drops on the tun it may help to raise this number. Default is 500
+  tx_queue: 500
+  # Default MTU for every packet, safe setting is (and the default) 1300 for internet based traffic
+  mtu: 1300
+  # Route based MTU overrides, you have known vpn ip paths that can support larger MTUs you can increase/decrease them here
+  routes:
+    #- mtu: 8800
+    #  route: 10.0.0.0/16
+  # Unsafe routes allows you to route traffic over nebula to non-nebula nodes
+  # Unsafe routes should be avoided unless you have hosts/services that cannot run nebula
+  # NOTE: The nebula certificate of the "via" node *MUST* have the "route" defined as a subnet in its certificate
+  unsafe_routes:
+    #- route: 172.16.1.0/24
+    #  via: 192.168.100.99
+    #  mtu: 1300 #mtu will default to tun mtu if this option is not sepcified
+
+
+# TODO
+# Configure logging level
+logging:
+  # panic, fatal, error, warning, info, or debug. Default is info
+  level: info
+  # json or text formats currently available. Default is text
+  format: text
+  # Disable timestamp logging. useful when output is redirected to logging system that already adds timestamps. Default is false
+  #disable_timestamp: true
+  # timestamp format is specified in Go time format, see:
+  #     https://golang.org/pkg/time/#pkg-constants
+  # default when `format: json`: "2006-01-02T15:04:05Z07:00" (RFC3339)
+  # default when `format: text`:
+  #     when TTY attached: seconds since beginning of execution
+  #     otherwise: "2006-01-02T15:04:05Z07:00" (RFC3339)
+  # As an example, to log as RFC3339 with millisecond precision, set to:
+  #timestamp_format: "2006-01-02T15:04:05.000Z07:00"
+
+stats:
+  type: prometheus
+  listen: 0.0.0.0:8080
+  path: /metrics
+  namespace: prometheusns
+  subsystem: nebula
+  interval: 1s
+  message_metrics: true
+
+  #stats:
+  #type: graphite
+  #prefix: nebula
+  #protocol: tcp
+  #host: 127.0.0.1:9999
+  #interval: 10s
+
+  #type: prometheus
+  #listen: 127.0.0.1:8080
+  #path: /metrics
+  #namespace: prometheusns
+  #subsystem: nebula
+  #interval: 10s
+
+  # enables counter metrics for meta packets
+  #   e.g.: `messages.tx.handshake`
+  # NOTE: `message.{tx,rx}.recv_error` is always emitted
+  #message_metrics: false
+
+  # enables detailed counter metrics for lighthouse packets
+  #   e.g.: `lighthouse.rx.HostQuery`
+  #lighthouse_metrics: false
+
+# Handshake Manger Settings
+#handshakes:
+  # Total time to try a handshake = sequence of `try_interval * retries`
+  # With 100ms interval and 20 retries it is 23.5 seconds
+  #try_interval: 100ms
+  #retries: 20
+  # wait_rotation is the number of handshake attempts to do before starting to try non-local IP addresses
+  #wait_rotation: 5
+  # trigger_buffer is the size of the buffer channel for quickly sending handshakes
+  # after receiving the response for lighthouse queries
+  #trigger_buffer: 64
+
+# Nebula security group configuration
+firewall:
+  conntrack:
+    tcp_timeout: 12m
+    udp_timeout: 3m
+    default_timeout: 10m
+    max_connections: 100000
+
+  # The firewall is default deny. There is no way to write a deny rule.
+  # Rules are comprised of a protocol, port, and one or more of host, group, or CIDR
+  # Logical evaluation is roughly: port AND proto AND (ca_sha OR ca_name) AND (host OR group OR groups OR cidr)
+  # - port: Takes `0` or `any` as any, a single number `80`, a range `200-901`, or `fragment` to match second and further fragments of fragmented packets (since there is no port available).
+  #   code: same as port but makes more sense when talking about ICMP, TODO: this is not currently implemented in a way that works, use `any`
+  #   proto: `any`, `tcp`, `udp`, or `icmp`
+  #   host: `any` or a literal hostname, ie `test-host`
+  #   group: `any` or a literal group name, ie `default-group`
+  #   groups: Same as group but accepts a list of values. Multiple values are AND'd together and a certificate would have to contain all groups to pass
+  #   cidr: a CIDR, `0.0.0.0/0` is any.
+  #   ca_name: An issuing CA name
+  #   ca_sha: An issuing CA shasum
+
+  outbound:
+    # Allow all outbound traffic from this node
+    - port: any
+      proto: any
+      host: any
+
+  inbound:
+    - port: any
+      proto: any
+      host: any
