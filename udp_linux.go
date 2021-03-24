@@ -146,6 +146,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 	udpAddr := &udpAddr{}
 	gossipPacket := &GossipPacket{}
 	nb := make([]byte, 12, 12)
+	pair := &pair{}
 
 	lhh := f.lightHouse.NewRequestHandler()
 
@@ -169,7 +170,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 			udpAddr.IP = binary.BigEndian.Uint32(names[i][4:8])
 			udpAddr.Port = binary.BigEndian.Uint16(names[i][2:4])
 
-			f.readOutsidePackets(udpAddr, plaintext[:0], buffers[i][:msgs[i].Len], header, gossipPacket, fwPacket, lhh, nb)
+			f.readOutsidePackets(pair, udpAddr, plaintext[:0], buffers[i][:msgs[i].Len], header, gossipPacket, fwPacket, lhh, nb)
 		}
 	}
 }

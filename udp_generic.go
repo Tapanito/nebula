@@ -108,7 +108,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 	udpAddr := &udpAddr{}
 	gossipPacket := &GossipPacket{}
 	nb := make([]byte, 12, 12)
-
+pair := &pair{}
 	lhh := f.lightHouse.NewRequestHandler()
 
 	for {
@@ -120,7 +120,7 @@ func (u *udpConn) ListenOut(f *Interface) {
 		}
 
 		udpAddr.UDPAddr = *rua
-		f.readOutsidePackets(udpAddr, plaintext[:0], buffer[:n], header, gossipPacket, fwPacket, lhh, nb)
+		f.readOutsidePackets(pair, udpAddr, plaintext[:0], buffer[:n], header, gossipPacket, fwPacket, lhh, nb)
 	}
 }
 

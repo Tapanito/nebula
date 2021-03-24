@@ -30,22 +30,22 @@ func splitIndex(idx uint32) (ip1, ip2 uint32) {
 }
 
 type pair struct {
-	from *HostInfo
-	to   *HostInfo
+	from uint32
+	to   uint32
 }
 
 func (p *pair) withLogger(l logrus.FieldLogger) logrus.FieldLogger {
-	var fromIp, toIp uint32
+	return l.WithField("pair.from", IntIp(p.from)).
+		WithField("pair.to", IntIp(p.to))
+}
 
-	if p.from != nil {
-		fromIp = p.from.hostId
-	}
+func (p *pair) IsEmpty() bool {
+	return p.from == 0 && p.to == 0
+}
 
-	if p.to != nil {
-		toIp = p.to.hostId
-	}
-	return l.WithField("pair.from", IntIp(fromIp)).
-		WithField("pair.to", IntIp(toIp))
+func (p *pair) Clear() {
+	p.from = 0
+	p.to = 0
 }
 
 /*
@@ -119,7 +119,7 @@ func (p *pathManager) AddPending(src, dst uint32, sender, recv *HostInfo) {
 	idx2 := index(senderIp, recvIp)
 	_, ok2 := pairs[idx2]
 	if !ok2 {
-		pair := pair{from: sender, to: recv}
+		pair := pair{from: senderIp, to: recvIp}
 		pairs[idx2] = pair
 		(&pair).withLogger(l).Debug("added new pair")
 	}
@@ -130,18 +130,20 @@ func (p *pathManager) AddPending(src, dst uint32, sender, recv *HostInfo) {
 	p.pendingLock.Unlock()
 }
 
-func (p *pathManager) GetEstablished(src, dst uint32) *pair {
+func (p *pathManager) GetEstablished(src, dst uint32, pair *pair) {
 	idx := index(src, dst)
 	p.establishedLock.Lock()
-	pair, ok := p.establishedPaths[idx]
+	pp, ok := p.establishedPaths[idx]
 	if ok {
 		p.establishedTraffic[idx]++
-		p.establishedLock.Unlock()
-		return &pair
+		pair.from = pp.from
+		pair.to = pp.to
+	} else {
+		pair.from = 0
+		pair.to = 0
 	}
 
 	p.establishedLock.Unlock()
-	return nil
 }
 
 func (p *pathManager) Establish(src, dst uint32, sender *HostInfo) (*pair, error) {
@@ -162,7 +164,7 @@ func (p *pathManager) Establish(src, dst uint32, sender *HostInfo) (*pair, error
 
 	var pair *pair
 	for _, v := range pairs {
-		if sender == v.from || sender == v.to {
+		if sender.hostId == v.from || sender.hostId == v.to {
 			pair = &v
 			break
 		}
@@ -231,6 +233,7 @@ func (p *pathManager) handlePathDeletionTick(now time.Time) {
 		idx := ep.(uint32)
 		counter, ok := p.establishedTraffic[idx]
 		if !ok {
+			delete(p.establishedPaths, idx)
 			// TODO: log?
 			continue
 		}
@@ -248,4 +251,12 @@ func (p *pathManager) handlePathDeletionTick(now time.Time) {
 	p.establishedLock.Unlock()
 	p.metrics.Set("established_paths.active", int64(len(p.establishedPaths)))
 	p.metrics.Set("established_paths.flushed", int64(flushed))
+}
+
+func (p *pathManager) deleteEstablished(src, dst uint32) {
+	idx := index(src, dst)
+	p.establishedLock.Lock()
+	delete(p.establishedTraffic, idx)
+	delete(p.establishedPaths, idx)
+	p.establishedLock.Unlock()
 }

@@ -10,6 +10,17 @@ type MessageMetrics struct {
 	rx [][]metrics.Counter
 	tx [][]metrics.Counter
 
+	// decryption metric
+	dec metrics.Histogram
+	// encryption metric
+	enc metrics.Histogram
+
+	proc   metrics.Histogram
+	parse  metrics.Histogram
+	fwd    metrics.Histogram
+	gossip metrics.Histogram
+	write  metrics.Histogram
+
 	rxUnknown metrics.Counter
 	txUnknown metrics.Counter
 }
@@ -55,13 +66,33 @@ func newMessageMetrics() *MessageMetrics {
 			nil,
 			nil,
 			{metrics.GetOrRegisterCounter(fmt.Sprintf("messages.%s.ack_path", t), nil)},
-
 		}
 	}
 	return &MessageMetrics{
 		rx: gen("rx"),
 		tx: gen("tx"),
 
+		enc: metrics.GetOrRegisterHistogram("messages.encrypt",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		dec: metrics.GetOrRegisterHistogram("messages.decrypt",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		proc: metrics.GetOrRegisterHistogram("messages.process",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		parse: metrics.GetOrRegisterHistogram("messages.parse",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		fwd: metrics.GetOrRegisterHistogram("messages.fwd",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		gossip: metrics.GetOrRegisterHistogram("messages.gossip",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		write: metrics.GetOrRegisterHistogram("messages.write",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
 		rxUnknown: metrics.GetOrRegisterCounter("messages.rx.other", nil),
 		txUnknown: metrics.GetOrRegisterCounter("messages.tx.other", nil),
 	}
@@ -99,6 +130,27 @@ func newLighthouseMetrics() *MessageMetrics {
 	return &MessageMetrics{
 		rx: gen("rx"),
 		tx: gen("tx"),
+		enc: metrics.GetOrRegisterHistogram("messages.encrypt",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		dec: metrics.GetOrRegisterHistogram("messages.decrypt",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		proc: metrics.GetOrRegisterHistogram("messages.process",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		parse: metrics.GetOrRegisterHistogram("messages.parse",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		fwd: metrics.GetOrRegisterHistogram("messages.fwd",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		gossip: metrics.GetOrRegisterHistogram("messages.gossip",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
+		write: metrics.GetOrRegisterHistogram("messages.write",
+			nil,
+			metrics.NewExpDecaySample(1024, 0.015)),
 
 		rxUnknown: metrics.GetOrRegisterCounter("lighthouse.rx.other", nil),
 		txUnknown: metrics.GetOrRegisterCounter("lighthouse.tx.other", nil),

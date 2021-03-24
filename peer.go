@@ -29,7 +29,7 @@ func EstablishConnection(ifce *Interface, addrs []string) error {
 
 			hostinfo := ifce.getOrHandshake(ip2int(parsedIp))
 			if !hostinfo.HandshakeComplete {
-				l.WithField("addr", addr).Info("connection with peer not ready")
+				//l.WithField("addr", addr).Info("connection with peer not ready")
 			}
 		}
 

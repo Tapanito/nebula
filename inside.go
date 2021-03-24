@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 )
 
-func (f *Interface) consumeInsidePacket(packet []byte, gossipPacket *GossipPacket, fwPacket *FirewallPacket, nb, out []byte) {
+func (f *Interface) consumeInsidePacket(pair *pair, packet []byte, gossipPacket *GossipPacket, fwPacket *FirewallPacket, nb, out []byte) {
 	err := newPacket(packet, false, fwPacket)
 	if err != nil {
 		l.WithField("packet", packet).Infof("Error while validating outbound packet: %s", err)
@@ -28,46 +28,46 @@ func (f *Interface) consumeInsidePacket(packet []byte, gossipPacket *GossipPacke
 		return
 	}
 
-	// TODO: rand number generation will require optimising
 	gossipPacket.ID = f.rand.Uint32()
 	gossipPacket.LocalIP = fwPacket.LocalIP
 
-	if pair := f.pathManager.GetEstablished(fwPacket.LocalIP, fwPacket.RemoteIP); pair != nil {
-		// This is the source of the packet, pair from will be nil
+	f.pathManager.GetEstablished(fwPacket.LocalIP, fwPacket.RemoteIP, pair)
+	if !pair.IsEmpty() {
 		remote := pair.to
-		if remote == nil {
+		if remote == 0 {
 			remote = pair.from
 		}
-		gossipPacket.RemoteIP = remote.hostId
 
-		packet = GossipEncode(packet, gossipPacket, true)
-		mc, err := f.plainSend(message, remote, packet, nb, out)
+		rem, err := f.hostMap.QueryVpnIP(remote)
 		if err != nil {
-			remote.logger().WithError(err).Error("failed to send message directly to peer")
+			pair.withLogger(l).Info("Remote not found, falling back to gossip")
+			f.pathManager.deleteEstablished(fwPacket.LocalIP, fwPacket.RemoteIP)
+			f.packetCache.cache(gossipPacket.ID)
+			gossipPacket.RemoteIP = 0
 			f.gossip(nil, gossipPacket, fwPacket, packet, nb, out)
-
+			return
 		}
+		gossipPacket.RemoteIP = rem.hostId
+		packet = GossipEncode(packet, gossipPacket, true)
+		mc, err := f.plainSend(message, rem, packet, nb, out)
+		if err != nil {
+			rem.logger().WithError(err).Error("failed to send message directly to peer")
+			f.pathManager.deleteEstablished(fwPacket.LocalIP, fwPacket.RemoteIP)
+			f.packetCache.cache(gossipPacket.ID)
+			gossipPacket.RemoteIP = 0
+			f.gossip(nil, gossipPacket, fwPacket, packet, nb, out)
+			return
+		}
+		gossipPacket.withLogger(rem.logger()).Debug("Message sent via established path")
+
 		if f.lightHouse != nil && mc%5000 == 0 {
 			f.lightHouse.Query(fwPacket.RemoteIP, f)
 		}
 	} else {
 		f.packetCache.cache(gossipPacket.ID)
+		gossipPacket.RemoteIP = 0
 		f.gossip(nil, gossipPacket, fwPacket, packet, nb, out)
 	}
-
-	//dropReason := f.firewall.Drop(packet, *fwPacket, false, hostinfo, trustedCAs)
-	//if dropReason == nil {
-	//	mc := f.sendNoMetrics(message, 0, ci, hostinfo, hostinfo.remote, packet, nb, out)
-	//	if f.lightHouse != nil && mc%5000 == 0 {
-	//		f.lightHouse.Query(fwPacket.RemoteIP, f)
-	//	}
-	//
-	//} else if l.Level >= logrus.DebugLevel {
-	//	hostinfo.logger().
-	//		WithField("fwPacket", fwPacket).
-	//		WithField("reason", dropReason).
-	//		Debugln("dropping outbound packet")
-	//}
 }
 
 // getOrHandshake returns nil if the vpnIp is not routable
@@ -80,8 +80,6 @@ func (f *Interface) getOrHandshake(vpnIp uint32) *HostInfo {
 	}
 
 	hostinfo, err := f.hostMap.PromoteBestQueryVpnIP(vpnIp, f)
-
-	//if err != nil || hostinfo.ConnectionState == nil {
 	if err != nil {
 		hostinfo, err = f.handshakeManager.pendingHostMap.QueryVpnIP(vpnIp)
 		if err != nil {
@@ -90,7 +88,6 @@ func (f *Interface) getOrHandshake(vpnIp uint32) *HostInfo {
 	}
 
 	ci := hostinfo.ConnectionState
-
 	if ci != nil && ci.eKey != nil && ci.ready {
 		return hostinfo
 	}
@@ -252,39 +249,23 @@ func (f *Interface) sendNoMetrics(t NebulaMessageType, st NebulaMessageSubType, 
 }
 
 func (f *Interface) plainSend(t NebulaMessageType, hostinfo *HostInfo, packet, nb, out []byte) (uint64, error) {
-	ci := hostinfo.ConnectionState
-	remote := hostinfo.remote
-	if ci.eKey == nil {
-		//TODO: log warning
-		return 0, nil
-	}
-
 	var err error
-	//TODO: enable if we do more than 1 tun queue
-	//ci.writeLock.Lock()
-	c := atomic.AddUint64(ci.messageCounter, 1)
+	c := atomic.AddUint64(hostinfo.ConnectionState.messageCounter, 1)
 
-	//l.WithField("trace", string(debug.Stack())).Error("out Header ", &Header{Version, t, st, 0, hostinfo.remoteIndexId, c}, packet)
 	out = HeaderEncode(out, Version, uint8(t), uint8(0), hostinfo.remoteIndexId, c)
-	f.connectionManager.Out(hostinfo.hostId)
 
-	out, err = ci.eKey.EncryptDanger(out, out, packet, c, nb)
+	out, err = hostinfo.ConnectionState.eKey.EncryptDanger(out, out, packet, c, nb)
 	//TODO: see above note on lock
-	//ci.writeLock.Unlock()
 	if err != nil {
 		hostinfo.logger().WithError(err).
-			WithField("udpAddr", remote).WithField("counter", c).
-			WithField("attemptedCounter", ci.messageCounter).
+			WithField("udpAddr", hostinfo.remote).WithField("counter", c).
+			WithField("attemptedCounter", hostinfo.ConnectionState.messageCounter).
 			Error("Failed to encrypt outgoing packet")
 		return c, err
 	}
+	err = f.outside.WriteTo(out, hostinfo.remote)
 
-	f.messageMetrics.Tx(t, 0, 1)
-	err = f.outside.WriteTo(out, remote)
-	if err != nil {
-		hostinfo.logger().WithError(err).
-			WithField("udpAddr", remote).Error("Failed to write outgoing packet")
-	}
+	f.connectionManager.Out(hostinfo.hostId)
 
 	return c, err
 }

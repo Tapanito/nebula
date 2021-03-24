@@ -169,6 +169,7 @@ func (f *Interface) listenIn(i int) {
 	fwPacket := &FirewallPacket{}
 	nb := make([]byte, 12, 12)
 	gossipPacket := &GossipPacket{}
+	pair := &pair{}
 	for {
 		n, err := f.inside.Read(packet)
 		if err != nil {
@@ -177,7 +178,7 @@ func (f *Interface) listenIn(i int) {
 			os.Exit(2)
 		}
 
-		f.consumeInsidePacket(packet[:n], gossipPacket, fwPacket, nb, out)
+		f.consumeInsidePacket(pair, packet[:n], gossipPacket, fwPacket, nb, out)
 	}
 }
 
