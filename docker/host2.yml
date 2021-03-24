@@ -53,7 +53,7 @@ tun:
 # Configure logging level
 logging:
   # panic, fatal, error, warning, info, or debug. Default is info
-  level: info
+  level: debug
   # json or text formats currently available. Default is text
   format: text
   # Disable timestamp logging. useful when output is redirected to logging system that already adds timestamps. Default is false

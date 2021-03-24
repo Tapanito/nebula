@@ -21,9 +21,6 @@ if ! [ -f "ca.crt" ]; then
   $NEBULA_CERT ca -name "Foo..."
 fi
 
-# Build binaries
-make bin
-
 # Create the docker network if it does not exist
 docker network create --subnet=172.20.0.0/24 nebula || true
 docker kill "${nodes[@]}" > /dev/null || true
